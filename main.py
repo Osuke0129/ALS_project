@@ -84,7 +84,7 @@ def playback_pose():
     frame_index = 0
     total_frames = len(data)
 
-    print("再生中: スペース=一時停止/再開, f=早送り(10フレーム), ESC=終了")
+    print("再生中: スペース=一時停止/再開, f=早送り(10フレーム), b=巻き戻し(10フレーム), ESC=終了")
 
     while cap.isOpened() and frame_index < total_frames:
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
@@ -112,6 +112,8 @@ def playback_pose():
             paused = not paused
         elif key == ord('f'):
             frame_index = min(frame_index + 10, total_frames - 1)
+        elif key == ord('b'):
+            frame_index = max(frame_index - 10, 0)
 
         if paused:
             while True:
@@ -119,6 +121,18 @@ def playback_pose():
                 if key2 == ord(' '):
                     paused = not paused
                     break
+                elif key2 == ord('f'):
+                    frame_index = min(frame_index + 10, total_frames - 1)
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+                    ret, frame = cap.read()
+                    if ret:
+                        cv2.imshow('Pose Playback', frame)
+                elif key2 == ord('b'):
+                    frame_index = max(frame_index - 10, 0)
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+                    ret, frame = cap.read()
+                    if ret:
+                        cv2.imshow('Pose Playback', frame)
                 elif key2 == 27:
                     cap.release()
                     cv2.destroyAllWindows()
