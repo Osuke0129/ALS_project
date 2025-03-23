@@ -12,7 +12,11 @@ def record_pose():
     cap = cv2.VideoCapture(0)
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     fps = 30.0
-    out = cv2.VideoWriter('recorded_pose.mp4', fourcc, fps, (int(cap.get(3)), int(cap.get(4))))
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    out_pose = cv2.VideoWriter('recorded_pose.mp4', fourcc, fps, (int(cap.get(3)), int(cap.get(4))))
+    out_original = cv2.VideoWriter('moto_pose.mp4', fourcc, fps, (int(cap.get(3)), int(cap.get(4))))
 
     csv_file = open('landmarks.csv', 'w', newline='')
     csv_writer = csv.writer(csv_file)
@@ -33,6 +37,8 @@ def record_pose():
             break
 
         frame = cv2.flip(frame, 1)
+        original_frame = frame.copy()  # 骨格を描かない元フレームを保存
+
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = pose.process(image)
 
@@ -42,26 +48,28 @@ def record_pose():
             for landmark in results.pose_landmarks.landmark:
                 landmarks_frame.extend([landmark.x, landmark.y])
 
-            csv_writer.writerow(landmarks_frame)
+        csv_writer.writerow(landmarks_frame)
 
         mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
-        # リアルタイムで座標を表示
         h, w, _ = frame.shape
         if results.pose_landmarks:
             for idx, landmark in enumerate(results.pose_landmarks.landmark):
                 x, y = int(landmark.x * w), int(landmark.y * h)
                 cv2.putText(frame, f"{idx}: ({x}, {y})", (x, y), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.4, (255, 255, 255), 1, cv2.LINE_AA)
+                        0.4, (255, 255, 255), 1, cv2.LINE_AA)
 
-        out.write(frame)
+        # 元動画と骨格付き動画を別々に書き込む（重要）
+        out_original.write(original_frame)  # 元動画（骨格なし）
+        out_pose.write(frame)               # 骨格描画あり動画
 
         cv2.imshow('Recording Pose', frame)
         if cv2.waitKey(5) & 0xFF == 27:
             break
 
-    csv_file.close()
-    out.release()
+    # 必ず両方をreleaseする
+    out_original.release()
+    out_pose.release()
     cap.release()
     cv2.destroyAllWindows()
 
@@ -71,7 +79,8 @@ def record_pose():
 
 # 再生モード（CSVファイルと動画を同期再生）
 def playback_pose():
-    cap = cv2.VideoCapture('recorded_pose.mp4')
+    cap_original = cv2.VideoCapture('moto_pose.mp4')
+    cap_pose = cv2.VideoCapture('recorded_pose.mp4')
 
     data = []
     with open('landmarks.csv', 'r') as file:
@@ -86,23 +95,28 @@ def playback_pose():
 
     print("再生中: スペース=一時停止/再開, f=早送り(10フレーム), b=巻き戻し(10フレーム), ESC=終了")
 
-    while cap.isOpened() and frame_index < total_frames:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-        ret, frame = cap.read()
-        if not ret:
+    while frame_index < total_frames:
+        cap_original.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        cap_pose.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+
+        ret1, frame_original = cap_original.read()
+        ret2, frame_pose = cap_pose.read()
+
+        if not ret1 or not ret2:
             break
 
-        h, w, _ = frame.shape
+        h, w, _ = frame_pose.shape
 
         landmarks = data[frame_index][1:]  # 最初の要素はタイムスタンプ
         for i in range(0, len(landmarks), 2):
             x = int(landmarks[i] * w)
             y = int(landmarks[i + 1] * h)
-            cv2.circle(frame, (x, y), 3, (0, 255, 0), -1)
-            cv2.putText(frame, f"{i//2}: ({x}, {y})", (x, y), cv2.FONT_HERSHEY_SIMPLEX,
+            cv2.circle(frame_pose, (x, y), 3, (0, 255, 0), -1)
+            cv2.putText(frame_pose, f"{i//2}: ({x}, {y})", (x, y), cv2.FONT_HERSHEY_SIMPLEX,
                         0.4, (255, 255, 255), 1, cv2.LINE_AA)
-
-        cv2.imshow('Pose Playback', frame)
+        
+        result=np.hstack((frame_original,frame_pose))
+        cv2.imshow('moto | Pose PlayBack', result)
 
         key = cv2.waitKey(int(1000 / 30)) & 0xFF
 
@@ -123,32 +137,42 @@ def playback_pose():
                     break
                 elif key2 == ord('f'):
                     frame_index = min(frame_index + 10, total_frames - 1)
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-                    ret, frame = cap.read()
-                    if ret:
-                        cv2.imshow('Pose Playback', frame)
                 elif key2 == ord('b'):
                     frame_index = max(frame_index - 10, 0)
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-                    ret, frame = cap.read()
-                    if ret:
-                        cv2.imshow('Pose Playback', frame)
                 elif key2 == 27:
-                    cap.release()
+                    cap_original.release()
+                    cap_pose.release()
                     cv2.destroyAllWindows()
                     return
+                
+                cap_original.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+                cap_pose.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+                ret1, frame_original = cap_original.read()
+                ret2, frame_pose = cap_pose.read()
+
+                if not ret1 or not ret2:
+                    break
+
+                h, w, _ = frame_pose.shape
+                landmarks = data[frame_index][1:]
+                for i in range(0, len(landmarks), 2):
+                    x = int(landmarks[i] * w)
+                    y = int(landmarks[i + 1] * h)
+                    cv2.circle(frame_pose, (x, y), 3, (0, 255, 0), -1)
+                    cv2.putText(frame_pose, f"{i//2}: ({x}, {y})", (x, y),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+                
+                result = np.hstack((frame_original, frame_pose))
+                cv2.imshow('moto | Pose PlayBack', result)
         else:
             frame_index += 1
-
-    cap.release()
-    cv2.destroyAllWindows()
 
     replay_again = input("再生が終了しました。もう一度再生しますか？ (y/n): ")
     if replay_again.lower() == 'y':
         playback_pose()
 
 if __name__ == '__main__':
-    mode = input("モード選択: 1=録画, 2=再生 > ")
+    mode = input("モード選択: 1=カメラモード, 2=ビデオモード > ")
 
     if mode == '1':
         record_pose()
