@@ -59,7 +59,7 @@ def record_pose():
                 cv2.putText(frame, f"{idx}: ({x}, {y})", (x, y), cv2.FONT_HERSHEY_SIMPLEX,
                         0.4, (255, 255, 255), 1, cv2.LINE_AA)
 
-        # 元動画と骨格付き動画を別々に書き込む（重要）
+        
         out_original.write(original_frame)  # 元動画（骨格なし）
         out_pose.write(frame)               # 骨格描画あり動画
 
@@ -171,12 +171,86 @@ def playback_pose():
     if replay_again.lower() == 'y':
         playback_pose()
 
+def video_mode():
+    name=input("選択するビデオのファイル名を入力：")
+
+    if not name.lower().endswith(".mp4"):
+        print("ファイル形式が間違えています．")
+    else:
+        cap_original = cv2.VideoCapture(name)
+
+        if not cap_original.isOpened():
+            print("ファイル名を確認してください．")
+            return
+        
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fps = cap_original.get(cv2.CAP_PROP_FPS)
+        width = int(cap_original.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap_original.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        cap_pose = cv2.VideoWriter('recorded_pose.mp4', fourcc, fps, (width, height))
+        csv_file = open('landmarks.csv', 'w', newline='')
+        csv_writer = csv.writer(csv_file)
+
+        pose = mp_pose.Pose(
+            static_image_mode=False,
+            model_complexity=1,
+            enable_segmentation=False,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+
+        while cap_original.isOpened():
+            ret, frame_original = cap_original.read()
+            if not ret:
+                break
+
+            frame_pose = frame_original.copy()
+            image = cv2.cvtColor(frame_pose, cv2.COLOR_BGR2RGB)
+            results = pose.process(image)
+
+            landmarks_frame = []
+            if results.pose_landmarks:
+                landmarks_frame.append(time.time())
+                for landmark in results.pose_landmarks.landmark:
+                    landmarks_frame.extend([landmark.x, landmark.y])
+
+            csv_writer.writerow(landmarks_frame)
+
+            mp_drawing.draw_landmarks(frame_pose, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
+
+            h, w, _ = frame_pose.shape
+            if results.pose_landmarks:
+                for idx, landmark in enumerate(results.pose_landmarks.landmark):
+                    x = int(landmark.x * w)
+                    y = int(landmark.y * h)
+                    cv2.circle(frame_pose, (x, y), 3, (0, 255, 0), -1)  # 点を描画
+                    cv2.putText(frame_pose, f"{idx}:({x},{y})", (x, y), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+
+            cap_pose.write(frame_pose)
+
+            result = np.hstack((frame_original, frame_pose))
+            cv2.imshow('Original | Pose Detection', result)
+
+            if cv2.waitKey(1) & 0xFF == 27:
+                break
+
+        cap_original.release()
+        cap_pose.release()
+        csv_file.close()
+        cv2.destroyAllWindows()
+
+        playback_pose()
+
+        
+
 if __name__ == '__main__':
     mode = input("モード選択: 1=カメラモード, 2=ビデオモード > ")
 
     if mode == '1':
         record_pose()
     elif mode == '2':
-        playback_pose()
+        video_mode()
     else:
         print("無効な入力です。");
