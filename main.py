@@ -9,7 +9,8 @@ mp_drawing = mp.solutions.drawing_utils
 
 # 録画モード（CSVファイルと動画を作成）
 def record_pose():
-    cap = cv2.VideoCapture(0)
+    camera_index = int(input("使用するカメラを選択してください 例:0=内蔵カメラ, 1=外部カメラ）: "))
+    cap = cv2.VideoCapture(camera_index)
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     fps = 30.0
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
