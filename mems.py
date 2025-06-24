@@ -64,7 +64,7 @@ def record_once(save_dir, trial_num):
             line = ser.readline().decode('utf-8').strip()
             data = parse_sensor_data(line)
             if data:
-                x, y, z = data[2], data[1], data[0]
+                x, y, z = data[0], data[1], data[2]
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
                 if current_mode == 'r':
